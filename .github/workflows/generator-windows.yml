@@ -500,7 +500,6 @@ jobs:
           data: '{"uuid": "${{ env.uuid }}", "status": "25% complete"}'
 
       - name: replace flutter icons
-        if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
         run: |
           cd ./flutter
@@ -508,6 +507,21 @@ jobs:
           flutter pub get
           flutter pub run flutter_launcher_icons
           cd ..
+
+      - name: replace Windows app icon
+        continue-on-error: true
+        run: |
+          # Replace the Windows Runner app_icon.ico with our custom icon
+          if (Test-Path ./res/icon.ico) {
+            $targetPath = "./flutter/windows/runner/resources/app_icon.ico"
+            if (Test-Path $targetPath) {
+              Copy-Item $targetPath "$targetPath.bak"
+            }
+            Copy-Item ./res/icon.ico $targetPath -Force
+            Write-Host "Windows app_icon.ico replaced with custom icon"
+          } else {
+            Write-Host "No custom icon.ico found, skipping"
+          }
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
