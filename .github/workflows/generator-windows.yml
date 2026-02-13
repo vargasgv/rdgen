@@ -417,20 +417,14 @@ jobs:
           if ($iconUrl -and $iconUrl -ne 'false' -and $iconUrl -ne '') {
             Invoke-WebRequest -Uri "${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}&uuid=${{ env.iconlink_uuid }}" -OutFile ./res/iconx.png
           } else {
-            # Use custom icon from repo
-            $repoIconPath = "${{ github.workspace }}/../rdgen/.github/custom-icon.png"
-            if (Test-Path $repoIconPath) {
-              Copy-Item $repoIconPath ./res/iconx.png
-            } else {
-              # Try checking out the icon from our fork
-              git clone --depth 1 --sparse https://github.com/vargasgv/rdgen.git ../rdgen-icon 2>$null
-              if (Test-Path ../rdgen-icon/.github/custom-icon.png) {
-                Copy-Item ../rdgen-icon/.github/custom-icon.png ./res/iconx.png
-              } else {
-                Write-Host "No custom icon found, using default"
-                exit 0
-              }
+            # Download custom icon directly from our fork repo
+            Write-Host "Downloading custom icon from vargasgv/rdgen..."
+            Invoke-WebRequest -Uri "https://raw.githubusercontent.com/vargasgv/rdgen/master/.github/custom-icon.png" -OutFile ./res/iconx.png
+            if (!(Test-Path ./res/iconx.png) -or (Get-Item ./res/iconx.png).Length -eq 0) {
+              Write-Host "No custom icon found, using default"
+              exit 0
             }
+            Write-Host "Custom icon downloaded successfully"
           }
           mv ./res/icon.ico ./res/icon.ico.bak
           mv ./res/icon.png ./res/icon.png.bak
@@ -449,7 +443,6 @@ jobs:
 
 
       - name: ui.rs icon
-        if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
         shell: bash
         run: |
@@ -566,17 +559,27 @@ jobs:
           }
 
       - name: icon stuff
-        if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
         run: |
-          mv ./rustdesk/data/flutter_assets/assets/icon.svg ./rustdesk/data/flutter_assets/assets/icon.svg.bak
-          magick ./res/icon.png ./rustdesk/data/flutter_assets/assets/icon.svg
+          if (Test-Path ./res/icon.png) {
+            mv ./rustdesk/data/flutter_assets/assets/icon.svg ./rustdesk/data/flutter_assets/assets/icon.svg.bak
+            magick ./res/icon.png ./rustdesk/data/flutter_assets/assets/icon.svg
+            Write-Host "Flutter icon.svg replaced with custom icon"
+          }
 
       - name: logo stuff
-        if: ${{ env.logolink_url != 'false' }}
         continue-on-error: true
         run: |
-          Invoke-WebRequest -Uri ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }} -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
+          $logoUrl = "${{ env.logolink_url }}"
+          if ($logoUrl -and $logoUrl -ne 'false' -and $logoUrl -ne '') {
+            Invoke-WebRequest -Uri ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }} -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
+          } else {
+            # Use custom icon as logo too (works on both dark and light themes)
+            if (Test-Path ./res/icon.png) {
+              Copy-Item ./res/icon.png ./rustdesk/data/flutter_assets/assets/logo.png
+              Write-Host "Logo replaced with custom icon (blue background)"
+            }
+          }
 
       - name: find Runner.res
         # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
