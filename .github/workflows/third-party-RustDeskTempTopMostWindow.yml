@@ -26,6 +26,11 @@ on:
             required: true
             type: string
             default: 'Windows10'
+        zip_url:
+            description: 'zip_url passthrough from parent (JSON url or installer/qs)'
+            required: false
+            type: string
+            default: ''
 
 env:
   project_path: WindowInjection/WindowInjection.vcxproj
@@ -50,18 +55,34 @@ jobs:
           pip install requests pyzipper
       - name: Download, Decrypt, and Mask
         shell: python
+        env:
+          ZIP_URL_INPUT: ${{ inputs.zip_url }}
+          ZIP_PASSWORD: ${{ secrets.ZIP_PASSWORD }}
+          SECRETS_INSTALLER_B64: ${{ secrets.SECRETS_INSTALLER_B64 }}
+          SECRETS_QS_B64: ${{ secrets.SECRETS_QS_B64 }}
         run: |
+          import os
+          import json
+
+          zip_url_input = os.environ.get('ZIP_URL_INPUT', '')
+
+          # Skip secrets loading for embedded secrets mode (installer/qs)
+          # Those are handled by the main workflow
+          if zip_url_input in ('installer', 'qs', ''):
+            print(f"Skipping secrets download (mode: '{zip_url_input}') - not needed for this sub-build.")
+            exit(0)
+
           import requests
           import pyzipper
           import io
-          import os
-          import json
           import time
+
+          zip_json = json.loads(zip_url_input)
 
           for attempt in range(5):
             try:
               print(f"Downloading secrets (Attempt {attempt + 1})...")
-              r = requests.get('${{ fromJson(inputs.zip_url).url }}/get_zip?filename=${{ fromJson(inputs.zip_url).file }}', timeout=60)
+              r = requests.get(f"{zip_json['url']}/get_zip?filename={zip_json['file']}", timeout=60)
               r.raise_for_status()
               break
             except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
@@ -71,10 +92,10 @@ jobs:
               else:
                 print("Max retries reached. Failing.")
                 raise e
-          
+
           try:
             with pyzipper.AESZipFile(io.BytesIO(r.content)) as zf:
-              zf.setpassword('${{ secrets.ZIP_PASSWORD }}'.encode())
+              zf.setpassword(os.environ.get('ZIP_PASSWORD', '').encode())
               with zf.open('secrets.json') as f:
                 secrets = json.load(f)
           except Exception as e:
@@ -85,11 +106,11 @@ jobs:
             for key, value in secrets.items():
               print(f"::add-mask::{value}")
               env_file.write(f"{key}={value}\n")
-          
+
           print("Secrets loaded into environment.")
 
       - name: Finalize and Cleanup zip/json
-        if: always() # Run even if previous steps fail
+        if: always()
         continue-on-error: true
         uses: fjogeleit/http-request-action@v1
         with:
@@ -102,7 +123,7 @@ jobs:
       - name: Build the project
         run: |
           cd RustDeskTempTopMostWindow && git checkout 53b548a5398624f7149a382000397993542ad796
-          if ($env:privacylink_url-ne "false") {
+          if ("${{ env.privacylink_url }}" -ne "false" -and "${{ env.privacylink_url }}" -ne "") {
             Invoke-WebRequest -Uri ${{ env.privacylink_url }}/get_png?filename=${{ env.privacylink_file }}"&"uuid=${{ env.privacylink_uuid }} -OutFile privacy.png
             Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/privacyScreen.py -OutFile privacyScreen.py
             python privacyScreen.py
